@@ -1,0 +1,35 @@
+<form id="myForm">
+  <input name="myFile" type="file" />
+  <button onclick="fUpload(this.parentNode)">UPLOAD</button>
+</form>
+<div id="message"></div>
+<script>
+  // UPLOAD処理
+  const fUpload = fObject => {
+    const raw = fObject.myFile.files[0];
+    const fr = new FileReader();
+    fr.onload = e => {
+      const obj = {
+        mimeType: raw.type,
+        bytes: [...new Int8Array(e.target.result)], // 受け取ったデータをバイト配列へ
+      };
+      google.script.run
+        .withSuccessHandler(onSuccess)
+        .withFailureHandler(onFailure)
+        .stUploaderV8(obj);
+    };
+    fr.readAsArrayBuffer(raw);
+    document.querySelector('#myForm').style.display = 'none';
+    document.querySelector('#message').innerHTML = 'UPLOAD...';
+  };
+
+  // 成功時処理
+  function onSuccess() {
+    google.script.host.close();
+  }
+
+  // 失敗時処理
+  function onFailure(e) {
+    document.querySelector('#message').innerHTML = `ERROR! ${e.message}`;
+  }
+</script>

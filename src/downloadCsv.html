@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <base target="_top" />
+    <script type="text/javascript">
+      window.onload = function(){
+          handleDownload();
+        }
+        function handleDownload() {
+          // 出力データを GAS から取得する
+          var content = <?= generateCsvForImport(); ?>;
+          var bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+          // 先頭にBOM を付加する
+          var blob = new Blob([ bom, content ], { "type" : "text/csv" });
+          // var blob = new Blob([ content ], { "type" : "text/csv" }); // BOMなし
+          var link = document.createElement('a');
+          // ファイル名を GAS から取得する
+          link.download = "forImport.csv";
+          link.href = window.URL.createObjectURL(blob);
+          link.click();
+          // ダイアログを閉じる
+          google.script.host.close();
+        }
+    </script>
+  </head>
+</html>

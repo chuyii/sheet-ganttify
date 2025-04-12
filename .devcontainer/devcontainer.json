@@ -1,0 +1,19 @@
+{
+  "name": "Node.js & TypeScript",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "streetsidesoftware.code-spell-checker"
+      ]
+    }
+  },
+  // https://github.com/microsoft/vscode-remote-release/issues/1333#issuecomment-2345370220
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "runArgs": ["--userns=keep-id", "--security-opt=label=disable"],
+  "containerEnv": {
+    "HOME": "/home/node"
+  }
+}
