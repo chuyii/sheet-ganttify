@@ -297,12 +297,24 @@ export class SheetGanttify {
     taskData.link.updated = true;
   }
 
-  public createGantt() {
+  /**
+   * シートのデータからタスク定義の配列を生成する
+   * @returns TaskDefinition[]
+   */
+  private _parseTaskDefinitions(): TaskDefinition[] {
     const taskData = this.taskData;
-
     const tasks: TaskDefinition[] = [];
-    taskData.sectionAndTask.data.forEach(([_, task], index) => {
-      if (task === undefined) return;
+
+    // taskData の行数を基準にする
+    const numRows = taskData.sectionAndTask.data.length;
+
+    for (let index = 0; index < numRows; index++) {
+      const taskRow = taskData.sectionAndTask.data[index];
+      // taskRow が存在しない、またはタスク名がない行はスキップ
+      // taskRow[1](タスク名)がundefined or '' の場合
+      if (taskRow[1] === undefined || taskRow[1] === '') {
+        continue;
+      }
 
       let startDate: TaskDefinition['startDate'] = null;
       let endDate: TaskDefinition['endDate'] = null;
@@ -310,34 +322,63 @@ export class SheetGanttify {
       let startsAfter: TaskDefinition['startsAfter'] = new Set();
       let endsBefore: TaskDefinition['endsBefore'] = new Set();
 
-      const s = taskData.start.data[index]?.[0];
-      if (s === undefined) {
-        // do nothing
-      } else if (s.startsWith('=')) {
-        startsAfter = new Set(
-          taskData.start.data[index].map(
-            v => parseInt(v.replace(/=[A-Z]*/, '')) - ROW_DATA
-          )
-        );
-      } else if (s.match(/^[0-9]+d$/)) {
-        duration = parseInt(s.replace(/d$/, ''));
-      } else if (s.match(/^[0-9]{4}\/[0-9]{2}\/[0-9]{2}$/)) {
-        startDate = s;
+      const startInfo = taskData.start.data[index] ?? []; // Ensure array exists
+      const endInfo = taskData.end.data[index] ?? []; // Ensure array exists
+
+      // --- Parse Start Info ---
+      const s = startInfo[0]; // Primary start info
+      if (s !== undefined && s !== '') {
+        if (typeof s === 'string' && s.startsWith('=')) {
+          // Dependency found
+          startsAfter = new Set(
+            startInfo // Use full startInfo array for multiple dependencies
+              .map(v => String(v).replace(/=[A-Z]*/, '')) // Convert to string first
+              .map(v => parseInt(v))
+              .filter(v => !isNaN(v)) // Filter out NaN results
+              .map(v => v - ROW_DATA) // Adjust row number to 0-based index
+              .filter(v => v >= 0) // Ensure index is not negative
+          );
+        } else if (typeof s === 'string' && s.match(/^[0-9]+d$/)) {
+          // Duration found
+          duration = parseInt(s.replace(/d$/, ''));
+        } else if (
+          typeof s === 'string' &&
+          dayjs(s).isValid() &&
+          s.match(/^\d{4}\/\d{2}\/\d{2}$/)
+        ) {
+          // Valid date found
+          startDate = s;
+        }
+        // Note: Invalid date strings or other formats in start column are ignored
       }
 
-      const e = taskData.end.data[index]?.[0];
-      if (e === undefined) {
-        // do nothing
-      } else if (e.startsWith('=')) {
-        endsBefore = new Set(
-          taskData.end.data[index].map(
-            v => parseInt(v.replace(/=[A-Z]*/, '')) - ROW_DATA
-          )
-        );
-      } else if (e.match(/^[0-9]+d$/)) {
-        duration = parseInt(e.replace(/d$/, ''));
-      } else if (e.match(/^[0-9]{4}\/[0-9]{2}\/[0-9]{2}$/)) {
-        endDate = e;
+      // --- Parse End Info ---
+      const e = endInfo[0]; // Primary end info
+      if (e !== undefined && e !== '') {
+        if (typeof e === 'string' && e.startsWith('=')) {
+          // Dependency found
+          endsBefore = new Set(
+            endInfo // Use full endInfo array for multiple dependencies
+              .map(v => String(v).replace(/=[A-Z]*/, '')) // Convert to string first
+              .map(v => parseInt(v))
+              .filter(v => !isNaN(v)) // Filter out NaN results
+              .map(v => v - ROW_DATA) // Adjust row number to 0-based index
+              .filter(v => v >= 0) // Ensure index is not negative
+          );
+        } else if (typeof e === 'string' && e.match(/^[0-9]+d$/)) {
+          // Duration found - only use if not already set by start column
+          if (duration === null) {
+            duration = parseInt(e.replace(/d$/, ''));
+          }
+        } else if (
+          typeof e === 'string' &&
+          dayjs(e).isValid() &&
+          e.match(/^\d{4}\/\d{2}\/\d{2}$/)
+        ) {
+          // Valid date found
+          endDate = e;
+        }
+        // Note: Invalid date strings or other formats in end column are ignored
       }
 
       tasks.push({
@@ -348,139 +389,309 @@ export class SheetGanttify {
         startsAfter,
         endsBefore,
       });
-    });
+    }
+    return tasks;
+  }
 
+  /**
+   * 実績データを元に、実績反映済みのタスク定義を準備する
+   * @param baseTasks TaskDefinition[] - パースされた元のタスク定義
+   * @returns TaskDefinition[] - 実績反映済みタスク定義
+   */
+  private _prepareActualTaskDefinitions(
+    baseTasks: TaskDefinition[]
+  ): TaskDefinition[] {
+    const taskData = this.taskData;
+    return baseTasks.map(task => {
+      // Create a copy to avoid modifying the original base task definition
+      const actualTask = {
+        ...task,
+        startsAfter: new Set(task.startsAfter), // Ensure sets are copied
+        endsBefore: new Set(task.endsBefore),
+      };
+
+      const actualStartRaw = taskData.actual.data[task.id]?.[0];
+      const actualEndRaw = taskData.actual.data[task.id]?.[1];
+
+      // Validate actual dates before using them
+      const actualStart =
+        actualStartRaw &&
+        typeof actualStartRaw === 'string' &&
+        dayjs(actualStartRaw).isValid() &&
+        actualStartRaw.match(/^\d{4}\/\d{2}\/\d{2}$/)
+          ? actualStartRaw
+          : null;
+      const actualEnd =
+        actualEndRaw &&
+        typeof actualEndRaw === 'string' &&
+        dayjs(actualEndRaw).isValid() &&
+        actualEndRaw.match(/^\d{4}\/\d{2}\/\d{2}$/)
+          ? actualEndRaw
+          : null;
+
+      // If neither actual start nor end date is valid, return the original task definition
+      if (actualStart === null && actualEnd === null) {
+        return actualTask;
+      }
+
+      // If both actual start and end dates are valid, override completely
+      if (actualStart && actualEnd) {
+        actualTask.startDate = actualStart;
+        actualTask.endDate = actualEnd;
+        actualTask.duration = null; // Duration is now implicitly defined by dates
+        actualTask.startsAfter = new Set(); // Dependencies are overridden by actual dates
+        actualTask.endsBefore = new Set();
+        return actualTask;
+      }
+
+      // --- Handle cases where only one actual date is provided ---
+
+      // If the original task was defined by fixed dates (start and end)
+      if (actualTask.startDate && actualTask.endDate) {
+        if (actualStart && actualStart <= actualTask.endDate) {
+          // If actual start is provided and is on or before the original end date
+          actualTask.startDate = actualStart; // Adjust start date
+        }
+        if (actualEnd && actualEnd >= actualTask.startDate) {
+          // If actual end is provided and is on or after the (potentially updated) start date
+          actualTask.endDate = actualEnd; // Adjust end date
+        }
+      } else {
+        // If the original task was defined by duration or dependencies
+        // We now have at least one fixed date (actualStart or actualEnd)
+        actualTask.startDate = actualStart; // Set start if available
+        actualTask.endDate = actualEnd; // Set end if available
+        actualTask.startsAfter = new Set();
+        actualTask.endsBefore = new Set();
+      }
+
+      return actualTask;
+    });
+  }
+
+  /**
+   * 計画スケジュールと実績スケジュールを計算する
+   * @param tasks TaskDefinition[]
+   * @returns [Map<number, ScheduledTask>, Map<number, ScheduledTask>] - [計画スケジュール, 実績スケジュール]
+   */
+  private _resolveSchedules(
+    tasks: TaskDefinition[]
+  ): [Map<number, TaskDefinition>, Map<number, TaskDefinition>] {
     const calendar = this.calendar;
-    const [, scheduledTasks] = resolveSchedule(
-      tasks.filter(t => t.startDate || t.endDate || t.duration),
+    // Filter tasks that have enough information to be scheduled
+    const schedulableTasks = tasks.filter(
+      t => t.startDate || t.endDate || t.duration
+    );
+
+    // Resolve planned schedule
+    const [, scheduledTasks] = resolveSchedule(schedulableTasks, calendar);
+
+    // Prepare task definitions reflecting actual start/end dates from the sheet
+    const actualTaskDefinitions =
+      this._prepareActualTaskDefinitions(schedulableTasks);
+
+    // Resolve schedule based on actual task definitions
+    const [, actualScheduledTasks] = resolveSchedule(
+      actualTaskDefinitions,
       calendar
     );
 
-    const actualTasks = tasks
-      .filter(t => t.startDate || t.endDate || t.duration)
-      .map(task => {
-        const actualTask = { ...task };
+    return [scheduledTasks, actualScheduledTasks];
+  }
 
-        const actualStart = taskData.actual.data[task.id]?.[0] || null;
-        const actualEnd = taskData.actual.data[task.id]?.[1] || null;
-
-        if (actualStart === null && actualEnd === null) {
-          return actualTask;
-        }
-        if (actualStart && actualEnd) {
-          actualTask.startDate = actualStart;
-          actualTask.endDate = actualEnd;
-          actualTask.duration = null;
-          actualTask.startsAfter = new Set();
-          actualTask.endsBefore = new Set();
-          return actualTask;
-        }
-        if (actualTask.startDate && actualTask.endDate) {
-          if (actualStart && actualStart <= actualTask.endDate) {
-            actualTask.startDate = actualStart;
-          }
-          if (actualEnd && actualTask.startDate <= actualEnd) {
-            actualTask.endDate = actualEnd;
-          }
-        } else {
-          actualTask.startDate = actualStart;
-          actualTask.endDate = actualEnd;
-          actualTask.startsAfter = new Set();
-          actualTask.endsBefore = new Set();
-        }
-        return actualTask;
-      });
-    const [, actualScheduledTasks] = resolveSchedule(actualTasks, calendar);
-
+  /**
+   * ガントチャートデータと状態データを生成する
+   * @param tasks TaskDefinition[] - 元のタスク定義（IDと実績データへのマッピング用）
+   * @param scheduledTasks Map<number, ScheduledTask> - 計画スケジュール
+   * @param actualScheduledTasks Map<number, ScheduledTask> - 実績スケジュール
+   */
+  private _generateGanttAndStateData(
+    tasks: TaskDefinition[], // Use the original parsed tasks list for consistent indexing
+    scheduledTasks: Map<number, TaskDefinition>,
+    actualScheduledTasks: Map<number, TaskDefinition>
+  ) {
+    const taskData = this.taskData;
     const params = this.params;
-    taskData.gantt.data = Array.from(
-      new Array(tasks[tasks.length - 1].id + 1),
-      _ => new Array(params.calendarDuration).fill('') as string[]
+
+    // Determine the required array size based on the highest task ID + 1 from original parsing
+    const maxId = tasks.length > 0 ? Math.max(...tasks.map(t => t.id)) : -1;
+    const arraySize = maxId >= 0 ? maxId + 1 : 0; // Use 0 if no tasks
+
+    // Initialize arrays based on maxId to ensure all task rows are covered
+    const ganttData = Array.from(
+      new Array(arraySize),
+      () => new Array(params.calendarDuration).fill('') as string[]
     );
-    taskData.state.data = Array.from(
-      new Array(tasks[tasks.length - 1].id + 1),
-      _ => new Array(1).fill('') as string[]
+    const stateData = Array.from(
+      new Array(arraySize),
+      () => new Array(1).fill('') as string[]
     );
 
     const today = dayjs().format('YYYY/MM/DD');
+
+    // Iterate through the original task definitions to access task ID and corresponding data
     tasks.forEach(task => {
-      const scheduledTask = scheduledTasks.get(task.id);
-      const actualScheduledTask = actualScheduledTasks.get(task.id);
-      let [actualStart, actualEnd] = taskData.actual.data[task.id] ?? [];
-      const progress = taskData.progress.data[task.id]?.[0] ?? '';
+      const taskId = task.id; // Use the ID from the parsed task
+      const scheduledTask = scheduledTasks.get(taskId);
+      const actualScheduledTask = actualScheduledTasks.get(taskId);
+      const [rawActualStart] = taskData.actual.data[taskId] ?? [];
+      const progress = taskData.progress.data[taskId]?.[0] ?? '';
 
-      taskData.state.data[task.id][0] = '';
-      if (actualStart) taskData.state.data[task.id][0] = '進行中';
+      // --- Initialize State ---
+      let currentState = ''; // Default empty state
+      if (rawActualStart) {
+        // If there's any entry in Actual Start
+        currentState = '進行中';
+      }
 
+      // --- Draw Planned Bar ---
       if (scheduledTask) {
-        taskData.gantt.data[task.id].fill(
-          '━',
-          dayjs(scheduledTask.startDate).diff(params.calendarStart, 'day'),
-          dayjs(scheduledTask.endDate).diff(params.calendarStart, 'day') + 1
+        const startIndex = dayjs(scheduledTask.startDate).diff(
+          params.calendarStart,
+          'day'
         );
+        const endIndex = dayjs(scheduledTask.endDate).diff(
+          params.calendarStart,
+          'day'
+        );
+        const validStartIndex = Math.max(0, startIndex);
+        const validEndIndex = Math.min(params.calendarDuration - 1, endIndex);
+
+        if (validStartIndex <= validEndIndex) {
+          for (let i = validStartIndex; i <= validEndIndex; i++) {
+            ganttData[taskId][i] = '━'; // Planned bar segment
+          }
+        }
       }
 
-      if (actualScheduledTask) {
-        actualStart = actualScheduledTask.startDate!;
-        actualEnd = actualScheduledTask.endDate!;
-      }
+      // --- Draw Actual Bar (overriding planned bar segments) ---
+      const actualStart = actualScheduledTask?.startDate ?? null;
+      const actualEnd = actualScheduledTask?.endDate ?? null;
+
       if (actualStart && actualEnd) {
-        if (scheduledTask) {
-          const scheduledStartIndex = dayjs(scheduledTask.startDate).diff(
-            params.calendarStart,
-            'day'
-          );
-          const scheduledEndIndex = dayjs(scheduledTask.endDate).diff(
-            params.calendarStart,
-            'day'
-          );
+        const actualStartIndex = dayjs(actualStart).diff(
+          params.calendarStart,
+          'day'
+        );
+        const actualEndIndex = dayjs(actualEnd).diff(
+          params.calendarStart,
+          'day'
+        );
+        const validActualStartIndex = Math.max(0, actualStartIndex);
+        const validActualEndIndex = Math.min(
+          params.calendarDuration - 1,
+          actualEndIndex
+        );
 
-          for (
-            let i = dayjs(actualStart).diff(params.calendarStart, 'day');
-            i < dayjs(actualEnd).diff(params.calendarStart, 'day') + 1;
-            i++
-          ) {
+        if (validActualStartIndex <= validActualEndIndex) {
+          const scheduledStartIndex = scheduledTask
+            ? dayjs(scheduledTask.startDate).diff(params.calendarStart, 'day')
+            : -Infinity;
+          const scheduledEndIndex = scheduledTask
+            ? dayjs(scheduledTask.endDate).diff(params.calendarStart, 'day')
+            : -Infinity;
+
+          for (let i = validActualStartIndex; i <= validActualEndIndex; i++) {
             if (i < scheduledStartIndex) {
-              taskData.gantt.data[task.id][i] = '┫';
+              ganttData[taskId][i] = '┫'; // Actual started before planned
             } else if (i > scheduledEndIndex) {
-              taskData.gantt.data[task.id][i] = '┣';
-              taskData.state.data[task.id][0] = '遅延';
+              ganttData[taskId][i] = '┣'; // Actual ended after planned
+              if (currentState !== '完了') currentState = '遅延'; // Mark as delayed if not completed
+            } else if (scheduledTask) {
+              // Check scheduledTask exists before marking overlap
+              ganttData[taskId][i] = '╋'; // Actual overlaps with planned
             } else {
-              taskData.gantt.data[task.id][i] = '╋';
+              ganttData[taskId][i] = '┃'; // Actual bar, no planned bar to compare
             }
           }
-        } else {
-          taskData.gantt.data[task.id].fill(
-            '┃',
-            dayjs(actualStart).diff(params.calendarStart, 'day'),
-            dayjs(actualEnd).diff(params.calendarStart, 'day') + 1
-          );
+          // If actual end is after planned end, ensure state reflects delay
+          if (actualEndIndex > scheduledEndIndex && currentState !== '完了') {
+            currentState = '遅延';
+          }
         }
       }
-      if (actualScheduledTask && !taskData.actual.data[task.id]?.[0]) {
-        if (today >= actualScheduledTask.startDate!)
-          taskData.state.data[task.id][0] = '要開始';
-        else taskData.state.data[task.id][0] = '未着手';
+
+      // --- Update State based on Dates and Progress ---
+      if (actualScheduledTask && !rawActualStart) {
+        // Scheduled but not started according to raw data
+        if (today >= actualScheduledTask.startDate!) {
+          currentState = '要開始'; // Past planned start, not started
+        } else {
+          currentState = '未着手'; // Not yet planned start
+        }
       }
+
+      // Check for overdue state: Started, not 100% done, and past *actual* end date.
       if (
-        taskData.actual.data[task.id]?.[0] &&
+        rawActualStart &&
         progress !== '100' &&
+        actualEnd &&
         actualEnd < today
       ) {
-        for (
-          let i = dayjs(actualEnd).diff(params.calendarStart, 'day') + 1;
-          i < dayjs(today).diff(params.calendarStart, 'day') + 1;
-          i++
-        ) {
-          taskData.gantt.data[task.id][i] = '╳';
+        currentState = '要見直'; // Task is overdue
+        const actualEndIndex = dayjs(actualEnd).diff(
+          params.calendarStart,
+          'day'
+        );
+        const todayIndex = dayjs(today).diff(params.calendarStart, 'day');
+
+        // Mark days from actualEnd+1 to today with '╳' if they are within the calendar range
+        for (let i = actualEndIndex + 1; i <= todayIndex; i++) {
+          if (i >= 0 && i < params.calendarDuration) {
+            ganttData[taskId][i] = '╳';
+          }
         }
-        taskData.state.data[task.id][0] = '要見直';
       }
-      if (progress === '100') taskData.state.data[task.id][0] = '完了';
+
+      // Final state override: If progress is 100%, it's '完了' regardless of dates.
+      if (progress === '100') {
+        currentState = '完了';
+      }
+
+      // Assign the final calculated state
+      stateData[taskId][0] = currentState;
     });
 
+    // Assign the generated data back to taskData and mark as updated
+    taskData.gantt.data = ganttData;
+    taskData.state.data = stateData;
     taskData.gantt.updated = true;
     taskData.state.updated = true;
+  }
+
+  public createGantt() {
+    // 1. Parse task definitions from the sheet data
+    const taskDefinitions = this._parseTaskDefinitions();
+
+    // If no valid tasks found, clear relevant data and exit
+    if (taskDefinitions.length === 0) {
+      const taskData = this.taskData;
+      const params = this.params;
+      // Ensure gantt/state arrays match the number of rows fetched initially
+      const numRows = taskData.sectionAndTask.data.length;
+      taskData.gantt.data = Array.from(
+        new Array(numRows),
+        _ => new Array(params.calendarDuration).fill('') as string[]
+      );
+      taskData.state.data = Array.from(
+        new Array(numRows),
+        _ => new Array(1).fill('') as string[]
+      );
+      taskData.gantt.updated = true;
+      taskData.state.updated = true;
+      return;
+    }
+
+    // 2. Resolve planned and actual schedules
+    const [scheduledTasks, actualScheduledTasks] =
+      this._resolveSchedules(taskDefinitions);
+
+    // 3. Generate gantt chart visuals and task states based on schedules
+    this._generateGanttAndStateData(
+      taskDefinitions,
+      scheduledTasks,
+      actualScheduledTasks
+    );
   }
 
   public write() {
