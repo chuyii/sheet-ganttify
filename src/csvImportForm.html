@@ -19,7 +19,7 @@
           alert(`ERROR! ${err.message}`);
           button.disabled = false;
         })
-        .stUploaderV8(data);
+        .handleCsvUpload(data);
     };
     reader.readAsArrayBuffer(file);
   };

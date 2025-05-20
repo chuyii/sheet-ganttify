@@ -17,6 +17,6 @@
   function handleFormSubmit(formObject) {
     google.script.run
       .withSuccessHandler(() => google.script.host.close())
-      .processForm(formObject);
+      .processTicketIdForm(formObject);
   }
 </script>
