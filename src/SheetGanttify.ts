@@ -9,6 +9,7 @@ import {
   STATUS,
   WEEK,
 } from './constants';
+import { SheetApi } from './sheet-api';
 import { SheetTaskLoader, TaskData } from './sheet-task-loader';
 import { TaskDefinition, resolveSchedule } from './task';
 import { WorkdayCalendar } from './workday-calendar';
@@ -52,53 +53,59 @@ export class SheetGanttify {
     return SheetGanttify.instance;
   }
 
-  private get params() {
-    if (this._params) return this._params;
+  private _fetchParamsValues() {
+    return SheetApi.batchGet(SpreadsheetApp.getActive().getId(), {
+      ranges: ['params!2:2'],
+    })?.valueRanges?.[0]?.values;
+  }
 
-    const params = Sheets.Spreadsheets?.Values?.batchGet(
-      SpreadsheetApp.getActive().getId(),
-      { ranges: ['params!2:2'] }
-    )?.valueRanges?.[0]?.values;
-
-    if (typeof params?.[0]?.[0] !== 'string')
+  private _buildParams(values: (string | number)[][] | undefined) {
+    if (typeof values?.[0]?.[0] !== 'string')
       throw new Error('calendarStart is not defined');
-    const calendarStart = dayjs(params?.[0]?.[0]);
+    const calendarStart = dayjs(values[0][0]);
 
-    if (typeof params?.[0]?.[1] !== 'string')
+    if (typeof values?.[0]?.[1] !== 'string')
       throw new Error('calendarEnd is not defined');
-    const calendarEnd = dayjs(params?.[0]?.[1]);
+    const calendarEnd = dayjs(values[0][1]);
 
     if (calendarStart > calendarEnd)
       throw new Error('calendarStart > calendarEnd');
     const calendarDuration = calendarEnd.diff(calendarStart, 'day') + 1;
 
     const ticketTracker =
-      typeof params?.[0]?.[2] === 'string' ? params?.[0]?.[2] : '';
+      typeof values?.[0]?.[2] === 'string' ? values[0][2] : '';
 
     const ticketTargetVersion =
-      typeof params?.[0]?.[3] === 'string' ? params?.[0]?.[3] : '';
+      typeof values?.[0]?.[3] === 'string' ? values[0][3] : '';
 
     const ticketLinkBasePath =
-      typeof params?.[0]?.[4] === 'string' ? params?.[0]?.[4] : '';
+      typeof values?.[0]?.[4] === 'string' ? values[0][4] : '';
 
-    return (this._params = {
+    return {
       calendarStart,
       calendarEnd,
       calendarDuration,
       ticketTracker,
       ticketTargetVersion,
       ticketLinkBasePath,
-    });
+    } as const;
+  }
+
+  private get params() {
+    if (this._params) return this._params;
+
+    const values = this._fetchParamsValues();
+    return (this._params = this._buildParams(values));
   }
 
   private get holidays() {
     if (this._holidays) return this._holidays;
 
     const holidays = (
-      Sheets.Spreadsheets?.Values?.batchGet(
-        SpreadsheetApp.getActive().getId(),
-        { ranges: ['holiday!A3:A', 'holiday!C3:C'], majorDimension: 'COLUMNS' }
-      )?.valueRanges ?? []
+      SheetApi.batchGet(SpreadsheetApp.getActive().getId(), {
+        ranges: ['holiday!A3:A', 'holiday!C3:C'],
+        majorDimension: 'COLUMNS',
+      })?.valueRanges ?? []
     ).map(r =>
       (r.values ?? [[]])[0]
         .filter(v => typeof v === 'string')
@@ -228,6 +235,49 @@ export class SheetGanttify {
       : null;
   }
 
+  private _parseStartInfo(info: (string | number)[]) {
+    let startDate: TaskDefinition['startDate'] = null;
+    let duration: TaskDefinition['duration'] = null;
+    let startsAfter: TaskDefinition['startsAfter'] = new Set<number>();
+
+    const s = info[0];
+    if (s !== undefined && s !== '') {
+      if (typeof s === 'string' && s.startsWith('=')) {
+        startsAfter = this._parseDependencies(info);
+      } else {
+        const dur = this._parseDuration(s);
+        const date = dur === null ? this._parseDate(s) : null;
+        if (dur !== null) duration = dur;
+        if (date) startDate = date;
+      }
+    }
+
+    return { startDate, duration, startsAfter } as const;
+  }
+
+  private _parseEndInfo(
+    info: (string | number)[],
+    currentDuration: number | null
+  ) {
+    let endDate: TaskDefinition['endDate'] = null;
+    let duration = currentDuration;
+    let endsBefore: TaskDefinition['endsBefore'] = new Set<number>();
+
+    const e = info[0];
+    if (e !== undefined && e !== '') {
+      if (typeof e === 'string' && e.startsWith('=')) {
+        endsBefore = this._parseDependencies(info);
+      } else {
+        const dur = this._parseDuration(e);
+        const date = dur === null ? this._parseDate(e) : null;
+        if (dur !== null && duration === null) duration = dur;
+        if (date) endDate = date;
+      }
+    }
+
+    return { endDate, duration, endsBefore } as const;
+  }
+
   /**
    * シートのデータからタスク定義の配列を生成する
    * @returns TaskDefinition[]
@@ -253,31 +303,15 @@ export class SheetGanttify {
       const startInfo = taskData.start.data[index] ?? [];
       const endInfo = taskData.end.data[index] ?? [];
 
-      // --- Parse Start Info ---
-      const s = startInfo[0];
-      if (s !== undefined && s !== '') {
-        if (typeof s === 'string' && s.startsWith('=')) {
-          startsAfter = this._parseDependencies(startInfo);
-        } else {
-          const dur = this._parseDuration(s);
-          const date = dur === null ? this._parseDate(s) : null;
-          if (dur !== null) duration = dur;
-          if (date) startDate = date;
-        }
-      }
+      const startParsed = this._parseStartInfo(startInfo);
+      startDate = startParsed.startDate;
+      duration = startParsed.duration;
+      startsAfter = startParsed.startsAfter;
 
-      // --- Parse End Info ---
-      const e = endInfo[0];
-      if (e !== undefined && e !== '') {
-        if (typeof e === 'string' && e.startsWith('=')) {
-          endsBefore = this._parseDependencies(endInfo);
-        } else {
-          const dur = this._parseDuration(e);
-          const date = dur === null ? this._parseDate(e) : null;
-          if (dur !== null && duration === null) duration = dur;
-          if (date) endDate = date;
-        }
-      }
+      const endParsed = this._parseEndInfo(endInfo, duration);
+      endDate = endParsed.endDate;
+      duration = endParsed.duration;
+      endsBefore = endParsed.endsBefore;
 
       tasks.push({
         id: index,
@@ -605,7 +639,7 @@ export class SheetGanttify {
       }));
     if (data.length === 0) return;
 
-    Sheets.Spreadsheets?.Values?.batchUpdate(
+    SheetApi.batchUpdate(
       {
         valueInputOption: 'USER_ENTERED',
         data,
@@ -614,17 +648,16 @@ export class SheetGanttify {
     );
   }
 
-  public createCalendar() {
-    const params = this.params;
-    const holidays = this.holidays;
-
+  private _clearViewSheet() {
     if (SHEET_VIEW) {
-      Sheets.Spreadsheets?.Values?.batchClear(
+      SheetApi.batchClear(
         { ranges: ['view'] },
         SpreadsheetApp.getActive().getId()
       );
     }
+  }
 
+  private _adjustSheetColumns(duration: number) {
     if (SHEET_EDIT && SHEET_EDIT.getMaxColumns() > COL_CHART) {
       SHEET_EDIT.deleteColumns(
         COL_CHART + 1,
@@ -637,15 +670,21 @@ export class SheetGanttify {
         SHEET_VIEW.getMaxColumns() - COL_CHART
       );
     }
-    SHEET_EDIT?.insertColumnsAfter(COL_CHART, params.calendarDuration - 1);
-    SHEET_VIEW?.insertColumnsAfter(COL_CHART, params.calendarDuration - 1);
+    SHEET_EDIT?.insertColumnsAfter(COL_CHART, duration - 1);
+    SHEET_VIEW?.insertColumnsAfter(COL_CHART, duration - 1);
+  }
 
-    const months = [];
-    const weeks = [];
-    const days = [];
-    const notes = [];
-    for (let i = 0; i < params.calendarDuration; i++) {
-      const day = params.calendarStart.add(i, 'day');
+  private _buildCalendarHeaders(
+    duration: number,
+    start: dayjs.Dayjs,
+    holidays: { national: Set<string>; user: Set<string> }
+  ) {
+    const months: string[] = [];
+    const weeks: string[] = [];
+    const days: string[] = [];
+    const notes: string[] = [];
+    for (let i = 0; i < duration; i++) {
+      const day = start.add(i, 'day');
       months.push(MONTH[day.month()]);
       weeks.push(WEEK[day.day()]);
       days.push(day.format('DD'));
@@ -658,16 +697,10 @@ export class SheetGanttify {
             : ''
       );
     }
-    if (SHEET_EDIT) {
-      Sheets.Spreadsheets?.Values?.batchUpdate(
-        {
-          valueInputOption: 'USER_ENTERED',
-          data: [{ range: 'edit!U1:4', values: [months, weeks, days, notes] }],
-        },
-        SpreadsheetApp.getActive().getId()
-      );
-    }
+    return { months, weeks, days, notes } as const;
+  }
 
+  private _mergeMonthHeaders(months: string[]) {
     months.push('end');
     let mergeStartColumn = COL_CHART;
     let mergeColNum = 1;
@@ -683,9 +716,11 @@ export class SheetGanttify {
         mergeColNum = 1;
       }
     }
+  }
 
+  private _setViewFormula() {
     if (SHEET_EDIT && SHEET_VIEW) {
-      Sheets.Spreadsheets?.Values?.batchUpdate(
+      SheetApi.batchUpdate(
         {
           valueInputOption: 'USER_ENTERED',
           data: [
@@ -707,6 +742,32 @@ export class SheetGanttify {
         SpreadsheetApp.getActive().getId()
       );
     }
+  }
+
+  public createCalendar() {
+    const params = this.params;
+    const holidays = this.holidays;
+    this._clearViewSheet();
+    this._adjustSheetColumns(params.calendarDuration);
+
+    const { months, weeks, days, notes } = this._buildCalendarHeaders(
+      params.calendarDuration,
+      params.calendarStart,
+      holidays
+    );
+
+    if (SHEET_EDIT) {
+      SheetApi.batchUpdate(
+        {
+          valueInputOption: 'USER_ENTERED',
+          data: [{ range: 'edit!U1:4', values: [months, weeks, days, notes] }],
+        },
+        SpreadsheetApp.getActive().getId()
+      );
+    }
+
+    this._mergeMonthHeaders(months);
+    this._setViewFormula();
   }
 
   public generateCsvForImport() {
