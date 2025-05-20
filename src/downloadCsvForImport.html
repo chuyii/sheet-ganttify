@@ -1,0 +1,12 @@
+<script>
+  const content = <?= generateCsvForImport(); ?>;
+  const blob = new Blob([
+    new Uint8Array([0xef, 0xbb, 0xbf]),
+    content,
+  ], { type: 'text/csv' });
+  const link = document.createElement('a');
+  link.download = 'forImport.csv';
+  link.href = window.URL.createObjectURL(blob);
+  link.click();
+  google.script.host.close();
+</script>
