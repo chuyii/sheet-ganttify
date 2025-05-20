@@ -297,6 +297,31 @@ export class SheetGanttify {
     taskData.link.updated = true;
   }
 
+  private _parseDependencies(info: (string | number)[]): Set<number> {
+    return new Set(
+      info
+        .map(v => String(v).replace(/=[A-Z]*/, ''))
+        .map(v => parseInt(v))
+        .filter(v => !isNaN(v))
+        .map(v => v - ROW_DATA)
+        .filter(v => v >= 0)
+    );
+  }
+
+  private _parseDuration(value: unknown): number | null {
+    return typeof value === 'string' && /^[0-9]+d$/.test(value)
+      ? parseInt(value.replace(/d$/, ''))
+      : null;
+  }
+
+  private _parseDate(value: unknown): string | null {
+    return typeof value === 'string' &&
+      dayjs(value).isValid() &&
+      /^\d{4}\/\d{2}\/\d{2}$/.test(value)
+      ? value
+      : null;
+  }
+
   /**
    * シートのデータからタスク定義の配列を生成する
    * @returns TaskDefinition[]
@@ -319,63 +344,33 @@ export class SheetGanttify {
       let startsAfter: TaskDefinition['startsAfter'] = new Set();
       let endsBefore: TaskDefinition['endsBefore'] = new Set();
 
-      const startInfo = taskData.start.data[index] ?? []; // Ensure array exists
-      const endInfo = taskData.end.data[index] ?? []; // Ensure array exists
+      const startInfo = taskData.start.data[index] ?? [];
+      const endInfo = taskData.end.data[index] ?? [];
 
       // --- Parse Start Info ---
-      const s = startInfo[0]; // Primary start info
+      const s = startInfo[0];
       if (s !== undefined && s !== '') {
         if (typeof s === 'string' && s.startsWith('=')) {
-          // Dependency found
-          startsAfter = new Set(
-            startInfo // Use full startInfo array for multiple dependencies
-              .map(v => String(v).replace(/=[A-Z]*/, '')) // Convert to string first
-              .map(v => parseInt(v))
-              .filter(v => !isNaN(v)) // Filter out NaN results
-              .map(v => v - ROW_DATA) // Adjust row number to 0-based index
-              .filter(v => v >= 0) // Ensure index is not negative
-          );
-        } else if (typeof s === 'string' && s.match(/^[0-9]+d$/)) {
-          // Duration found
-          duration = parseInt(s.replace(/d$/, ''));
-        } else if (
-          typeof s === 'string' &&
-          dayjs(s).isValid() &&
-          s.match(/^\d{4}\/\d{2}\/\d{2}$/)
-        ) {
-          // Valid date found
-          startDate = s;
+          startsAfter = this._parseDependencies(startInfo);
+        } else {
+          const dur = this._parseDuration(s);
+          const date = dur === null ? this._parseDate(s) : null;
+          if (dur !== null) duration = dur;
+          if (date) startDate = date;
         }
-        // Note: Invalid date strings or other formats in start column are ignored
       }
 
       // --- Parse End Info ---
-      const e = endInfo[0]; // Primary end info
+      const e = endInfo[0];
       if (e !== undefined && e !== '') {
         if (typeof e === 'string' && e.startsWith('=')) {
-          // Dependency found
-          endsBefore = new Set(
-            endInfo // Use full endInfo array for multiple dependencies
-              .map(v => String(v).replace(/=[A-Z]*/, '')) // Convert to string first
-              .map(v => parseInt(v))
-              .filter(v => !isNaN(v)) // Filter out NaN results
-              .map(v => v - ROW_DATA) // Adjust row number to 0-based index
-              .filter(v => v >= 0) // Ensure index is not negative
-          );
-        } else if (typeof e === 'string' && e.match(/^[0-9]+d$/)) {
-          // Duration found - only use if not already set by start column
-          if (duration === null) {
-            duration = parseInt(e.replace(/d$/, ''));
-          }
-        } else if (
-          typeof e === 'string' &&
-          dayjs(e).isValid() &&
-          e.match(/^\d{4}\/\d{2}\/\d{2}$/)
-        ) {
-          // Valid date found
-          endDate = e;
+          endsBefore = this._parseDependencies(endInfo);
+        } else {
+          const dur = this._parseDuration(e);
+          const date = dur === null ? this._parseDate(e) : null;
+          if (dur !== null && duration === null) duration = dur;
+          if (date) endDate = date;
         }
-        // Note: Invalid date strings or other formats in end column are ignored
       }
 
       tasks.push({
