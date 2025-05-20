@@ -28,7 +28,7 @@ function createGantt() {
 
 function downloadCsvForImport() {
   SpreadsheetApp.getUi().showModalDialog(
-    HtmlService.createTemplateFromFile('downloadCsv').evaluate(),
+    HtmlService.createTemplateFromFile('downloadCsvForImport').evaluate(),
     'インポート用 CSV 生成'
   );
 }
