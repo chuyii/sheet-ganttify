@@ -9,6 +9,7 @@ import {
   STATUS,
   WEEK,
 } from './constants';
+import { SheetTaskLoader, TaskData } from './sheet-task-loader';
 import { TaskDefinition, resolveSchedule } from './task';
 import { WorkdayCalendar } from './workday-calendar';
 
@@ -40,20 +41,7 @@ export class SheetGanttify {
 
   private _calendar: WorkdayCalendar | undefined;
 
-  private _taskData:
-    | {
-        ticketId: { range: string; data: string[][]; updated: boolean };
-        sectionAndTask: { range: string; data: string[][]; updated: boolean };
-        start: { range: string; data: string[][]; updated: boolean };
-        end: { range: string; data: string[][]; updated: boolean };
-        actual: { range: string; data: string[][]; updated: boolean };
-        link: { range: string; data: string[][]; updated: boolean };
-        assignee: { range: string; data: string[][]; updated: boolean };
-        progress: { range: string; data: string[][]; updated: boolean };
-        state: { range: string; data: string[][]; updated: boolean };
-        gantt: { range: string; data: string[][]; updated: boolean };
-      }
-    | undefined;
+  private _taskData: TaskData | undefined;
 
   private constructor() {}
 
@@ -148,91 +136,7 @@ export class SheetGanttify {
   private get taskData() {
     if (this._taskData) return this._taskData;
 
-    this._taskData = {
-      ticketId: { range: `edit!B${ROW_DATA}:B`, data: [[]], updated: false },
-      sectionAndTask: {
-        range: `edit!C${ROW_DATA}:D`,
-        data: [[]],
-        updated: false,
-      },
-      start: { range: `edit!E${ROW_DATA}:I`, data: [[]], updated: false },
-      end: { range: `edit!J${ROW_DATA}:N`, data: [[]], updated: false },
-      actual: { range: `edit!O${ROW_DATA}:P`, data: [[]], updated: false },
-      link: { range: `edit!Q${ROW_DATA}:Q`, data: [[]], updated: false },
-      assignee: { range: `edit!R${ROW_DATA}:R`, data: [[]], updated: false },
-      progress: { range: `edit!S${ROW_DATA}:S`, data: [[]], updated: false },
-      state: { range: `edit!T${ROW_DATA}:T`, data: [[]], updated: false },
-      gantt: {
-        range: `edit!U${ROW_DATA}:${SHEET_EDIT!
-          .getRange(1, SHEET_EDIT!.getMaxColumns())
-          .getA1Notation()
-          .replace(/\d/, '')}T`,
-        data: [[]],
-        updated: false,
-      },
-    };
-
-    const data = Sheets.Spreadsheets?.Values?.batchGet(
-      SpreadsheetApp.getActive().getId(),
-      {
-        ranges: [
-          this._taskData.ticketId.range,
-          this._taskData.sectionAndTask.range,
-          this._taskData.start.range,
-          this._taskData.end.range,
-          this._taskData.actual.range,
-          this._taskData.link.range,
-          this._taskData.assignee.range,
-          this._taskData.progress.range,
-          this._taskData.state.range,
-        ],
-      }
-    )?.valueRanges;
-    if (data === undefined) throw new Error('Failed to get data');
-    const formula = Sheets.Spreadsheets?.Values?.batchGet(
-      SpreadsheetApp.getActive().getId(),
-      {
-        ranges: [this._taskData.start.range, this._taskData.end.range],
-        valueRenderOption: 'FORMULA',
-      }
-    )?.valueRanges;
-    if (formula === undefined) throw new Error('Failed to get formula');
-
-    this._taskData.ticketId.data = (data[0].values ?? [[]]) as string[][];
-    this._taskData.sectionAndTask.data = (data[1].values ?? [[]]) as string[][];
-    this._taskData.start.data = (data[2].values ?? [[]]) as string[][];
-    this._taskData.end.data = (data[3].values ?? [[]]) as string[][];
-    this._taskData.actual.data = (data[4].values ?? [[]]) as string[][];
-    this._taskData.link.data = (data[5].values ?? [[]]) as string[][];
-    this._taskData.assignee.data = (data[6].values ?? [[]]) as string[][];
-    this._taskData.progress.data = (data[7].values ?? [[]]) as string[][];
-    this._taskData.state.data = (data[8].values ?? [[]]) as string[][];
-
-    const startFormula = (formula[0].values ?? [[]]) as (string | number)[][];
-    const endFormula = (formula[1].values ?? [[]]) as (string | number)[][];
-
-    startFormula.forEach((row, index) => {
-      if (
-        typeof row[0] === 'string' &&
-        row[0].startsWith('=') &&
-        this._taskData?.start.data[index] !== undefined
-      ) {
-        this._taskData.start.data[index] = row
-          .filter(col => typeof col === 'string')
-          .filter(col => col.startsWith('='));
-      }
-    });
-    endFormula.forEach((row, index) => {
-      if (
-        typeof row[0] === 'string' &&
-        row[0].startsWith('=') &&
-        this._taskData?.end.data[index] !== undefined
-      ) {
-        this._taskData.end.data[index] = row
-          .filter(col => typeof col === 'string')
-          .filter(col => col.startsWith('='));
-      }
-    });
+    this._taskData = SheetTaskLoader.load();
 
     return this._taskData;
   }
