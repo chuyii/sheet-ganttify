@@ -59,7 +59,7 @@ function processForm(formObject: { result: string }) {
 
 function showCsvImportDialog() {
   SpreadsheetApp.getUi().showModalDialog(
-    HtmlService.createTemplateFromFile('uploadForm').evaluate(),
+    HtmlService.createTemplateFromFile('csvImportForm').evaluate(),
     'CSV インポート'
   );
 }
