@@ -305,13 +305,10 @@ export class SheetGanttify {
     const taskData = this.taskData;
     const tasks: TaskDefinition[] = [];
 
-    // taskData の行数を基準にする
     const numRows = taskData.sectionAndTask.data.length;
 
     for (let index = 0; index < numRows; index++) {
       const taskRow = taskData.sectionAndTask.data[index];
-      // taskRow が存在しない、またはタスク名がない行はスキップ
-      // taskRow[1](タスク名)がundefined or '' の場合
       if (taskRow[1] === undefined || taskRow[1] === '') {
         continue;
       }
@@ -394,9 +391,9 @@ export class SheetGanttify {
   }
 
   /**
-   * 実績データを元に、実績反映済みのタスク定義を準備する
-   * @param baseTasks TaskDefinition[] - パースされた元のタスク定義
-   * @returns TaskDefinition[] - 実績反映済みタスク定義
+   * Prepare task definitions with actual data applied.
+   * @param baseTasks TaskDefinition[] - parsed original task definitions
+   * @returns TaskDefinition[] - task definitions updated with actual data
    */
   private _prepareActualTaskDefinitions(
     baseTasks: TaskDefinition[]
@@ -470,9 +467,9 @@ export class SheetGanttify {
   }
 
   /**
-   * 計画スケジュールと実績スケジュールを計算する
+   * Compute planned and actual schedules.
    * @param tasks TaskDefinition[]
-   * @returns [Map<number, ScheduledTask>, Map<number, ScheduledTask>] - [計画スケジュール, 実績スケジュール]
+   * @returns [Map<number, ScheduledTask>, Map<number, ScheduledTask>] - [planned schedule, actual schedule]
    */
   private _resolveSchedules(
     tasks: TaskDefinition[]
@@ -500,10 +497,10 @@ export class SheetGanttify {
   }
 
   /**
-   * ガントチャートデータと状態データを生成する
-   * @param tasks TaskDefinition[] - 元のタスク定義（IDと実績データへのマッピング用）
-   * @param scheduledTasks Map<number, ScheduledTask> - 計画スケジュール
-   * @param actualScheduledTasks Map<number, ScheduledTask> - 実績スケジュール
+   * Generate gantt chart and status data.
+   * @param tasks TaskDefinition[] - original task definitions used for mapping IDs and actual data
+   * @param scheduledTasks Map<number, ScheduledTask> - planned schedule
+   * @param actualScheduledTasks Map<number, ScheduledTask> - actual schedule
    */
   private _generateGanttAndStateData(
     tasks: TaskDefinition[], // Use the original parsed tasks list for consistent indexing
@@ -529,9 +526,8 @@ export class SheetGanttify {
 
     const today = dayjs().format('YYYY/MM/DD');
 
-    // Iterate through the original task definitions to access task ID and corresponding data
     tasks.forEach(task => {
-      const taskId = task.id; // Use the ID from the parsed task
+      const taskId = task.id;
       const scheduledTask = scheduledTasks.get(taskId);
       const actualScheduledTask = actualScheduledTasks.get(taskId);
       const [rawActualStart] = taskData.actual.data[taskId] ?? [];

@@ -4,14 +4,14 @@
 </form>
 <div id="message"></div>
 <script>
-  // UPLOAD処理
+  // Upload handler
   const fUpload = fObject => {
     const raw = fObject.myFile.files[0];
     const fr = new FileReader();
     fr.onload = e => {
       const obj = {
         mimeType: raw.type,
-        bytes: [...new Int8Array(e.target.result)], // 受け取ったデータをバイト配列へ
+        bytes: [...new Int8Array(e.target.result)], // Convert received data to a byte array
       };
       google.script.run
         .withSuccessHandler(onSuccess)
@@ -23,12 +23,12 @@
     document.querySelector('#message').innerHTML = 'UPLOAD...';
   };
 
-  // 成功時処理
+  // Success handler
   function onSuccess() {
     google.script.host.close();
   }
 
-  // 失敗時処理
+  // Failure handler
   function onFailure(e) {
     document.querySelector('#message').innerHTML = `ERROR! ${e.message}`;
   }
