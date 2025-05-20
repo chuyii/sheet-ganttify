@@ -1,0 +1,26 @@
+<form id="csvUploadForm">
+  <input name="csvFile" type="file" />
+  <button type="button" onclick="uploadCsv(this)">Upload</button>
+</form>
+<script>
+  const uploadCsv = button => {
+    button.disabled = true;
+    const form = button.parentNode;
+    const file = form.csvFile.files[0];
+    const reader = new FileReader();
+    reader.onload = e => {
+      const data = {
+        mimeType: file.type,
+        bytes: [...new Int8Array(e.target.result)],
+      };
+      google.script.run
+        .withSuccessHandler(() => google.script.host.close())
+        .withFailureHandler(err => {
+          alert(`ERROR! ${err.message}`);
+          button.disabled = false;
+        })
+        .stUploaderV8(data);
+    };
+    reader.readAsArrayBuffer(file);
+  };
+</script>
