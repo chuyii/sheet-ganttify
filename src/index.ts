@@ -6,8 +6,8 @@ function onOpen() {
   const menu = ui.createMenu('SheetGanttify');
 
   menu.addItem(createCalendar.name, createCalendar.name);
-  menu.addItem(createGantt.name, createGantt.name);
-  menu.addItem(downloadCsvForImport.name, downloadCsvForImport.name);
+  menu.addItem(createGanttChart.name, createGanttChart.name);
+  menu.addItem(showCsvDownloadDialog.name, showCsvDownloadDialog.name);
   menu.addItem(showImportDialog.name, showImportDialog.name);
   menu.addItem(showCsvImportDialog.name, showCsvImportDialog.name);
   menu.addToUi();
@@ -18,7 +18,7 @@ function createCalendar() {
   sheetGanttify.createCalendar();
 }
 
-function createGantt() {
+function createGanttChart() {
   const sheetGanttify = SheetGanttify.getInstance();
   sheetGanttify.parseDummy();
   sheetGanttify.createGantt();
@@ -26,14 +26,14 @@ function createGantt() {
   sheetGanttify.write();
 }
 
-function downloadCsvForImport() {
+function showCsvDownloadDialog() {
   SpreadsheetApp.getUi().showModalDialog(
     HtmlService.createTemplateFromFile('downloadCsvForImport').evaluate(),
     'インポート用 CSV 生成'
   );
 }
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function generateCsvForImport() {
+function generateImportCsv() {
   const sheetGanttify = SheetGanttify.getInstance();
   return sheetGanttify.generateCsvForImport();
 }
@@ -45,9 +45,9 @@ function showImportDialog() {
   );
 }
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function processForm(formObject: { result: string }) {
-  const result = formObject.result.trim();
-  const ticketIds = result
+function processTicketIdForm(formObject: { result: string }) {
+  const trimmedResult = formObject.result.trim();
+  const ticketIds = trimmedResult
     .split('\n')
     .map(line => line.match(/[^#]*#([0-9]*):/)![1]);
   const sheetGanttify = SheetGanttify.getInstance();
@@ -64,32 +64,32 @@ function showCsvImportDialog() {
   );
 }
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-function stUploaderV8(fObject: { mimeType: string; bytes: number[] }) {
-  const csvData = Utilities.newBlob(
-    fObject.bytes,
-    fObject.mimeType
+function handleCsvUpload(fileObject: { mimeType: string; bytes: number[] }) {
+  const csvString = Utilities.newBlob(
+    fileObject.bytes,
+    fileObject.mimeType
   ).getDataAsString(); // Convert received bytes to CSV string
-  const parsed = Utilities.parseCsv(csvData); // Convert to a 2D array
+  const parsedCsv = Utilities.parseCsv(csvString); // Convert to a 2D array
 
-  const shintyokuIndex = parsed[0].findIndex(v => v === '進捗率');
-  const kaishiIndex = parsed[0].findIndex(v => v === '開始日');
-  const kijitsuIndex = parsed[0].findIndex(v => v === '期日');
-  const tantouIndex = parsed[0].findIndex(v => v === '担当者');
-  parsed.shift();
+  const progressIndex = parsedCsv[0].findIndex(v => v === '進捗率');
+  const startDateIndex = parsedCsv[0].findIndex(v => v === '開始日');
+  const dueDateIndex = parsedCsv[0].findIndex(v => v === '期日');
+  const assigneeIndex = parsedCsv[0].findIndex(v => v === '担当者');
+  parsedCsv.shift();
 
-  const dict: Record<string, [string, string, string, string]> = {};
-  parsed.forEach(
-    r =>
-      (dict[r[0]] = [
-        r[shintyokuIndex],
-        r[kaishiIndex],
-        r[kijitsuIndex],
-        r[tantouIndex],
+  const infoMap: Record<string, [string, string, string, string]> = {};
+  parsedCsv.forEach(
+    row =>
+      (infoMap[row[0]] = [
+        row[progressIndex],
+        row[startDateIndex],
+        row[dueDateIndex],
+        row[assigneeIndex],
       ])
   );
 
   const sheetGanttify = SheetGanttify.getInstance();
-  sheetGanttify.importInfo(dict);
+  sheetGanttify.importInfo(infoMap);
   sheetGanttify.createGantt();
   sheetGanttify.createLink();
   sheetGanttify.write();
