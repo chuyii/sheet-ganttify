@@ -40,7 +40,7 @@ function generateCsvForImport() {
 
 function showImportDialog() {
   SpreadsheetApp.getUi().showModalDialog(
-    HtmlService.createHtmlOutputFromFile('form'),
+    HtmlService.createHtmlOutputFromFile('importForm'),
     'インポート'
   );
 }

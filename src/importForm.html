@@ -1,0 +1,22 @@
+<form id="myForm" onsubmit="handleFormSubmit(this)">
+  <textarea name="result" rows="10"></textarea>
+  <input type="submit" value="Submit" />
+</form>
+<script>
+  // Prevent forms from submitting.
+  function preventFormSubmit() {
+    const forms = document.querySelectorAll('form');
+    forms.forEach(form => {
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+      });
+    });
+  }
+  window.addEventListener('load', preventFormSubmit);
+
+  function handleFormSubmit(formObject) {
+    google.script.run
+      .withSuccessHandler(() => google.script.host.close())
+      .processForm(formObject);
+  }
+</script>
