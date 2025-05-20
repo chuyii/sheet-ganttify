@@ -1,18 +1,20 @@
 import { stringify } from 'csv-stringify/sync';
 import dayjs from 'dayjs';
+import {
+  COL_CHART,
+  HOLIDAY_NATIONAL,
+  HOLIDAY_USER,
+  MONTH,
+  ROW_DATA,
+  STATUS,
+  WEEK,
+} from './constants';
 import { TaskDefinition, resolveSchedule } from './task';
 import { WorkdayCalendar } from './workday-calendar';
 
 const GSS = SpreadsheetApp.getActiveSpreadsheet();
 const SHEET_EDIT = GSS.getSheetByName('edit');
 const SHEET_VIEW = GSS.getSheetByName('view');
-const COL_CHART = 21;
-const ROW_DATA = 5;
-
-const MONTH = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
-const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
-const HOLIDAY_NATIONAL = '祝';
-const HOLIDAY_USER = 'ユ';
 
 export class SheetGanttify {
   // eslint-disable-next-line no-use-before-define
@@ -532,7 +534,7 @@ export class SheetGanttify {
       let currentState = ''; // Default empty state
       if (rawActualStart) {
         // If there's any entry in Actual Start
-        currentState = '進行中';
+        currentState = STATUS.IN_PROGRESS;
       }
 
       // --- Draw Planned Bar ---
@@ -587,7 +589,7 @@ export class SheetGanttify {
               ganttData[taskId][i] = '┫'; // Actual started before planned
             } else if (i > scheduledEndIndex) {
               ganttData[taskId][i] = '┣'; // Actual ended after planned
-              if (currentState !== '完了') currentState = '遅延'; // Mark as delayed if not completed
+              if (currentState !== STATUS.DONE) currentState = STATUS.DELAYED; // Mark as delayed if not completed
             } else if (scheduledTask) {
               // Check scheduledTask exists before marking overlap
               ganttData[taskId][i] = '╋'; // Actual overlaps with planned
@@ -596,8 +598,11 @@ export class SheetGanttify {
             }
           }
           // If actual end is after planned end, ensure state reflects delay
-          if (actualEndIndex > scheduledEndIndex && currentState !== '完了') {
-            currentState = '遅延';
+          if (
+            actualEndIndex > scheduledEndIndex &&
+            currentState !== STATUS.DONE
+          ) {
+            currentState = STATUS.DELAYED;
           }
         }
       }
@@ -606,9 +611,9 @@ export class SheetGanttify {
       if (actualScheduledTask && !rawActualStart) {
         // Scheduled but not started according to raw data
         if (today >= actualScheduledTask.startDate!) {
-          currentState = '要開始'; // Past planned start, not started
+          currentState = STATUS.NEED_START; // Past planned start, not started
         } else {
-          currentState = '未着手'; // Not yet planned start
+          currentState = STATUS.NOT_STARTED; // Not yet planned start
         }
       }
 
@@ -619,7 +624,7 @@ export class SheetGanttify {
         actualEnd &&
         actualEnd < today
       ) {
-        currentState = '要見直'; // Task is overdue
+        currentState = STATUS.NEED_REVIEW; // Task is overdue
         const actualEndIndex = dayjs(actualEnd).diff(
           params.calendarStart,
           'day'
@@ -636,7 +641,7 @@ export class SheetGanttify {
 
       // Final state override: If progress is 100%, it's '完了' regardless of dates.
       if (progress === '100') {
-        currentState = '完了';
+        currentState = STATUS.DONE;
       }
 
       // Assign the final calculated state
