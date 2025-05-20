@@ -7,18 +7,18 @@
           handleDownload();
         }
         function handleDownload() {
-          // 出力データを GAS から取得する
+          // Get output data from GAS
           var content = <?= generateCsvForImport(); ?>;
           var bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-          // 先頭にBOM を付加する
+          // Add BOM at the beginning
           var blob = new Blob([ bom, content ], { "type" : "text/csv" });
-          // var blob = new Blob([ content ], { "type" : "text/csv" }); // BOMなし
+          // var blob = new Blob([ content ], { "type" : "text/csv" }); // without BOM
           var link = document.createElement('a');
-          // ファイル名を GAS から取得する
+          // Get file name from GAS
           link.download = "forImport.csv";
           link.href = window.URL.createObjectURL(blob);
           link.click();
-          // ダイアログを閉じる
+          // Close the dialog
           google.script.host.close();
         }
     </script>

@@ -68,8 +68,8 @@ function stUploaderV8(fObject: { mimeType: string; bytes: number[] }) {
   const csvData = Utilities.newBlob(
     fObject.bytes,
     fObject.mimeType
-  ).getDataAsString(); // バイト配列として受け取ったデータをCSVとして取得
-  const parsed = Utilities.parseCsv(csvData); // 二次元配列へ
+  ).getDataAsString(); // Convert received bytes to CSV string
+  const parsed = Utilities.parseCsv(csvData); // Convert to a 2D array
 
   const shintyokuIndex = parsed[0].findIndex(v => v === '進捗率');
   const kaishiIndex = parsed[0].findIndex(v => v === '開始日');
